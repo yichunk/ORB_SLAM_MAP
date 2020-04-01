@@ -5,8 +5,10 @@
 #include<chrono>
 #include<vector>
 #include<opencv2/core/core.hpp>
-#include <numeric>      // std::iota
+#include<numeric>      // std::iota
 #include<System.h>
+#include<Eigen/Dense>
+#include"Converter.h"
 
 using namespace std;
 using namespace ORB_SLAM2;
@@ -91,24 +93,29 @@ void readPoints2D(string filename, unordered_map<int, vector<Point2D>>& points2D
     }
 }
 
-// void readPoints2D(string filename, unordered_map<int, vector<cv::KeyPoint>>& points2D){
-//     string line;
-//     ifstream points2DFile(filename);
-//     getline(points2DFile, line);
-//     int imageID, image2dId;
-//     float x,y,scale,orientation;
-//     while(getline(points2DFile, line)){
-//         istringstream iss(line);
-//         iss >> imageID;
-//         auto& point2ds = points2D[imageID];
-//         while(iss >> image2dId){
-//             iss >> x >> y >> scale >> orientation;
-//             // point2ds.push_back({x,y,scale,orientation});
-//             int level = discretizeScale(scale, 1.2);
-//             points2D.push_back(cv::KeyPoint(x,y,31,0,))
-//         }
-//     }
-// }
+void readPoses(string filename, unordered_map<int, cv::Mat>& imGrays, unordered_map<int, cv::Mat>& Tcws){
+    string line;
+    ifstream posesFile(filename);
+    getline(posesFile, line);
+    int imageID, cameraID;
+    float qw,qx,qy,qz,tx,ty,tz;
+    string imageFilename;
+    Converter converter;
+    
+    while(getline(posesFile, line)){
+        istringstream iss(line);
+        iss >> imageID >> qw >> qx >> qy >> qz >> tx >> ty >> tz >> cameraID >> imageFilename;
+        Eigen::Quaternion<double> q(qw, qx, qy, qz);
+        Eigen::Matrix<double,3,1> v;
+        v << tx, ty, tz;
+        cv::Mat Tcw = converter.toCvSE3(q.toRotationMatrix(), v);
+        cv::Mat im, imGray;
+        im = cv::imread(imageFilename);
+        cv::cvtColor(im, imGray, cv::COLOR_BGR2GRAY);
+        imGrays[imageID] = imGray;
+        Tcws[imageID] = Tcw;
+    }
+}
 
 void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& level, float& scale){
     level = 0;
@@ -120,21 +127,55 @@ void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& le
     }
 }
 
-// void constructKeyFrames(const unordered_map<int, vector<Point2D>>& points2D, 
-//                      const unordered_map<int, cv::Mat>& imGrays,
-//                      const unordered_map<int, cv::Mat>& Tcws,
-//                      const ORBextractor* pORBextractor,
-//                      const ORBVocabulary* pVocabulary,
-//                      const cv::Mat& K,
-//                      const cv::Mat& distCoef,
-//                      unordered_map<int, KeyFrame*> pKeyFrames){
-//     for(auto it: points2D){
-//         int mapID = it.first;
-//         auto& colmapPoints2D = it.second;
-        
+void constructKeyFrames(unordered_map<int, vector<Point2D>>& points2D, 
+                     unordered_map<int, cv::Mat>& imGrays,
+                     unordered_map<int, cv::Mat>& Tcws,
+                     ORBextractor* pORBextractor,
+                     ORBVocabulary* pVocabulary,
+                     cv::Mat& K,
+                     cv::Mat& distCoef,
+                     float fScaleFactor,
+                     int nLevels,
+                     KeyFrameDatabase* pKeyFrameDatabase,
+                     Map* pMap,
+                     unordered_map<int, KeyFrame*>& pKeyFrames,
+                     unordered_map<int, vector<int>>& orders,
+                     unordered_map<int, vector<int>>& accCounts
+                     ){
+    for(auto it: points2D){
+        int imID = it.first;
+        vector<Point2D>& colmapPoints2D = it.second;
+        vector<vector<cv::KeyPoint>> interestedPoints;
+        vector<size_t> sorted_index = sort_indexes(colmapPoints2D);
+        vector<int>& accCount = accCounts[imID];
+        accCount.resize(nLevels);
+        interestedPoints.resize(nLevels);
 
-//     }
-// }
+        //points2D id to its order of scale
+        vector<int>& order = orders[imID];
+        order.resize(colmapPoints2D.size());
+        for(int i = 0; i < order.size(); i++){
+            order[sorted_index[i]] = i;
+        }
+
+        for(int i = 0, j = 0; i < (int)colmapPoints2D.size(); i++){
+            const Point2D& point2D = colmapPoints2D[sorted_index[i]];
+            int level;
+            float scale;
+            discretizeScale(point2D.scale, fScaleFactor, nLevels, level, scale);
+            interestedPoints[level].push_back(
+                cv::KeyPoint(point2D.x/scale, point2D.y/scale, 31*scale, point2D.orientation, 0, level));
+            while(level > j){
+                accCount[j++] = i;
+            }
+        }
+        accCount[nLevels-1] = colmapPoints2D.size();
+        Frame frame(imGrays[imID], 0, pORBextractor, pVocabulary, K, distCoef, 0, 0, interestedPoints);
+        frame.ComputeBoW();
+        frame.SetPose(Tcws[imID]);
+        pKeyFrames[imID] = new KeyFrame(frame,pMap,pKeyFrameDatabase);
+    }
+}
 
 void drawGraph(MapDrawer* mpMapDrawer, FrameDrawer* mpFrameDrawer)
 {
@@ -229,7 +270,6 @@ void drawGraph(MapDrawer* mpMapDrawer, FrameDrawer* mpFrameDrawer)
 
 int main(int argc, char **argv)
 {
-
     ORBVocabulary* mpVocabulary = new ORBVocabulary();
     cout << "Load Vocabulary File" << endl;
     const string strVocFile("Vocabulary/ORBvoc.txt");
@@ -238,48 +278,6 @@ int main(int argc, char **argv)
     cout << "Create KeyFrame database and Map" << endl;
     KeyFrameDatabase* mpKeyFrameDatabase = new KeyFrameDatabase(mpVocabulary);
     Map* pMap = new Map();
-
-    string argo_img_files[] = {
-        "experiments/data/ring_front_center/ring_front_center_315978411061152056.jpg", 
-        "experiments/data/ring_front_center/ring_front_center_315978411527355224.jpg" 
-    };
-
-    cv::Mat im;
-    cv::Mat imGray;
-    im = cv::imread(argo_img_files[0]);
-    cv::cvtColor(im, imGray, cv::COLOR_BGR2GRAY);
-    
-    cv::Mat Tcws[] = { cv::Mat::eye(4,4,CV_32F), cv::Mat::eye(4,4,CV_32F) };
-
-    Tcws[0].at<float>(0,0) = 0.99984074;
-    Tcws[0].at<float>(0,1) = 0.00870911;
-    Tcws[0].at<float>(0,2) = -0.0155791;
-    Tcws[0].at<float>(0,3) = -0.455713;
-    Tcws[0].at<float>(1,0) = -0.00889986;
-    Tcws[0].at<float>(1,1) = 0.99988574;
-    Tcws[0].at<float>(1,2) = -0.01221689;
-    Tcws[0].at<float>(1,3) = 0.0478371;
-    Tcws[0].at<float>(2,0) = 0.01547092;
-    Tcws[0].at<float>(2,1) = 0.0123536;
-    Tcws[0].at<float>(2,2) = 0.999804;
-    Tcws[0].at<float>(2,3) = 5.3258;
-
-    // Tcws[1].at<float>(0,0) = 0.99991554;
-    // Tcws[1].at<float>(0,1) = 0.00565967;
-    // Tcws[1].at<float>(0,2) = -0.01169705;
-    // Tcws[1].at<float>(0,3) = -0.503096;
-    // Tcws[1].at<float>(1,0) = -0.00575021;
-    // Tcws[1].at<float>(1,1) = 0.9999536;
-    // Tcws[1].at<float>(1,2) = -0.00772146;
-    // Tcws[1].at<float>(1,3) = 0.0575373;
-    // Tcws[1].at<float>(2,0) = 0.01165281;
-    // Tcws[1].at<float>(2,1) = 0.00778807;
-    // Tcws[1].at<float>(2,2) = 0.9999018;
-    // Tcws[1].at<float>(2,3) = 0.564036;
-
-    // //map point: 2.92129, 0.894701, 8.56214
-    // cv::Mat x3D = (cv::Mat_<float>(3,1) << 2.92129, 0.894701, 8.56214);
-    
 
     int nFeatures = 1000;
     float fScaleFactor = 1.2;
@@ -298,132 +296,58 @@ int main(int argc, char **argv)
     ORBextractor* mpIniORBextractor = new ORBextractor(
         2*nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
 
-    // cv::Mat im, imGray;
-    KeyFrame* pKF;
-    MapPoint* pMP;
-
-    // vector<vector<cv::KeyPoint>> interestedPoints;
-    // interestedPoints.resize(8);
-    // interestedPoints[0].push_back(cv::KeyPoint(500, 500, 31, 0, 10));
-    // for(int i = 0; i < 2; i++){
-    //     im = cv::imread(argo_img_files[i]);
-    //     cv::cvtColor(im, imGray, cv::COLOR_BGR2GRAY);
-    //     Frame frame(imGray, i, mpIniORBextractor, mpVocabulary, K, distCoef, 0, 0, interestedPoints);
-    //     frame.ComputeBoW();
-    //     frame.SetPose(Tcws[i]);
-    //     pKF = new KeyFrame(frame,mpMap,mpKeyFrameDatabase);
-    //     if(i == 0){
-    //         pMP = new MapPoint(x3D, pKF, mpMap);
-    //         mpMap->AddMapPoint(pMP);
-    //     }
-    //     pMP->AddObservation(pKF,i);
-    //     pKF->AddMapPoint(pMP,i);
-    //     pMP->ComputeDistinctiveDescriptors();
-    //     pMP->UpdateNormalAndDepth();
-
-    //     pKF->UpdateConnections();
-    //     mpMap->AddKeyFrame(pKF);
-    //     mpKeyFrameDatabase->add(pKF);
-    // }
-
-   
-
-
     //point3D ID to Point3D
     unordered_map<int, Point3D> points3D;
-
     //image ID to Point2D vector
     unordered_map<int, vector<Point2D>> points2D;
+
+    unordered_map<int, KeyFrame*> pKeyFrames;
+    unordered_map<int, cv::Mat> imGrays;
+    unordered_map<int, cv::Mat> Tcws;
+    unordered_map<int, vector<int>> orders;
+    unordered_map<int, vector<int>> accCounts;
+
     readPoints3D("experiments/data/points3D.txt", points3D);
     readPoints2D("experiments/data/points2D.txt", points2D);
-    // vector<vector<cv::KeyPoint>> interestedPoints;
-    // interestedPoints.resize(8);
+    readPoses("experiments/data/poses.txt", imGrays, Tcws);
 
-    //暫時記錄imageid to keyframes, 之後用來更新MapPoint的attributes
-    // vector<KeyFrame*> addedKeyFrames;
-    // addedKeyFrames.resize(19);
+    constructKeyFrames(
+        points2D, imGrays, Tcws, mpIniORBextractor,
+        mpVocabulary, K, distCoef, fScaleFactor,
+        nLevels, mpKeyFrameDatabase, pMap,
+        pKeyFrames, orders, accCounts);
 
-    // vector<vector<cv::KeyPoint>> interestedPoints;
-    // interestedPoints.resize(8);
-    // for(auto it : points3D){
-    //     Point3D& point3D = it.second;
-
-    //     //新增MapPoint, 新加的constructor
-    //     //之後要補上 mnFirstKFid, mnFirstFrame, mpRefKF
-    //     cv::Mat pos = (cv::Mat_<float>(3,1) << point3D.x, point3D.y, point3D.z);
-    //     MapPoint* pMP = new MapPoint(pos, pMap);
-
-    //     vector<int>::iterator pit = find(point3D.imageIds.begin(), point3D.imageIds.end(), 5);
-    //     if(pit != point3D.imageIds.end()){
-    //         auto idx = pit - point3D.imageIds.begin();
-    //         int point2DId = point3D.points2dIds[idx];
-    //         Point2D& point2D = points2D[5][point2DId];
-    //         int level;
-    //         float scale;
-    //         discretizeScale(point2D.scale, 1.2, 8, level, scale);
-    //         interestedPoints[level].push_back(
-    //             cv::KeyPoint(point2D.x/scale, point2D.y/scale, 31*scale, point2D.orientation, 0, level));
-    //     }
-    // }
-
-    vector<vector<cv::KeyPoint>> interestedPoints;
-    vector<size_t> sorted_index = sort_indexes(points2D[5]);
-    vector<int> accCount;
-    accCount.resize(nLevels);
-    interestedPoints.resize(nLevels);
-    const vector<Point2D>& imagePoints2D = points2D[5];
-
-    //points2D id to its order of scale
-    vector<int> orders;
-    orders.resize(imagePoints2D.size());
-    for(int i = 0; i < orders.size(); i++){
-        orders[sorted_index[i]] = i;
-    }
-
-    for(int i = 0, j = 0; i < (int)imagePoints2D.size(); i++){
-        const Point2D& point2D = imagePoints2D[sorted_index[i]];
-        int level;
-        float scale;
-        discretizeScale(point2D.scale, fScaleFactor, nLevels, level, scale);
-        interestedPoints[level].push_back(
-            cv::KeyPoint(point2D.x/scale, point2D.y/scale, 31*scale, point2D.orientation, 0, level));
-        while(level > j){
-            accCount[j++] = i;
-        }
-    }
-    accCount[nLevels-1] = imagePoints2D.size();
-    Frame frame(imGray, 0, mpIniORBextractor, mpVocabulary, K, distCoef, 0, 0, interestedPoints);
-    frame.ComputeBoW();
-    frame.SetPose(Tcws[0]);
-
-    pKF = new KeyFrame(frame,pMap,mpKeyFrameDatabase);
 
     for(auto it : points3D){
         Point3D& point3D = it.second;
 
-        //新增MapPoint, 新加的constructor
-        //之後要補上 mnFirstKFid, mnFirstFrame, mpRefKF
+        //新增MapPoint, 隨意拿第一個ImageID做為first keyframe
         cv::Mat pos = (cv::Mat_<float>(3,1) << point3D.x, point3D.y, point3D.z);
-        vector<int>::iterator pit = find(point3D.imageIds.begin(), point3D.imageIds.end(), 5);
-        if(pit != point3D.imageIds.end()){
-            MapPoint* pMP = new MapPoint(pos, pMap);
-            int point2DId = point3D.points2dIds[(int)(pit - point3D.imageIds.begin())];
+        MapPoint* pMP = new MapPoint(pos, pKeyFrames[point3D.imageIds[0]],pMap);
+        for(int i = 0; i < point3D.imageIds.size(); i++){
+            int imID = point3D.imageIds[i];
+            int point2DId = point3D.points2dIds[i];
             int keypointId, offset;
             for(int level = 0; level < nLevels; level++){
-                if(orders[point2DId] < accCount[level]){
-                    offset = accCount[level] - orders[point2DId];
-                    keypointId = frame.mvAccKeyPoints[level] - offset;
+                if(orders[imID][point2DId] < accCounts[imID][level]){
+                    offset = accCounts[imID][level] - orders[imID][point2DId];
+                    keypointId = pKeyFrames[imID]->mvAccKeyPoints[level] - offset;
                     break;
                 }
             }
-            // cout << imagePoints2D[point2DId].x << " " << imagePoints2D[point2DId].y << " "  << pKF->mvKeys[keypointId].pt.x << " " << pKF->mvKeys[keypointId].pt.y << endl;
-
-            pKF->AddMapPoint(pMP, keypointId);
-            pMP->AddObservation(pKF, keypointId);
+            pKeyFrames[imID]->AddMapPoint(pMP, keypointId);
+            pMP->AddObservation(pKeyFrames[imID], keypointId);
+            pMP->ComputeDistinctiveDescriptors();
+            pMP->UpdateNormalAndDepth();
             pMap->AddMapPoint(pMP);
         }
     }
-    pMap->AddKeyFrame(pKF);
+
+    for(auto it: pKeyFrames){
+        it.second->UpdateConnections();
+        mpKeyFrameDatabase->add(it.second);
+        pMap->AddKeyFrame(it.second);
+    }
 
      //Create Drawers. These are used by the Viewer
     string strSettingsFile = "Examples/Monocular/TUM1.yaml";
