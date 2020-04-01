@@ -183,6 +183,8 @@ void LocalMapping::MapPointCulling()
     while(lit!=mlpRecentAddedMapPoints.end())
     {
         MapPoint* pMP = *lit;
+        if(pMP->mbFixed)
+            continue;
         if(pMP->isBad())
         {
             lit = mlpRecentAddedMapPoints.erase(lit);
@@ -640,7 +642,7 @@ void LocalMapping::KeyFrameCulling()
     for(vector<KeyFrame*>::iterator vit=vpLocalKeyFrames.begin(), vend=vpLocalKeyFrames.end(); vit!=vend; vit++)
     {
         KeyFrame* pKF = *vit;
-        if(pKF->mnId==0)
+        if(pKF->mnId==0 || pKF->mbFixed)
             continue;
         const vector<MapPoint*> vpMapPoints = pKF->GetMapPointMatches();
 

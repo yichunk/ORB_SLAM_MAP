@@ -198,6 +198,9 @@ public:
     const int mnMaxY;
     const cv::Mat mK;
 
+    // Fixed in Map, pose would not be optimized, and not be culled
+    bool mbFixed;
+
 
     // The following variables need to be accessed trough a mutex to be thread safe.
 protected:

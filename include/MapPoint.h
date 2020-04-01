@@ -122,6 +122,9 @@ public:
 
     static std::mutex mGlobalMutex;
 
+    // Fixed in Map, pose would not be optimized, and not be culled
+    bool mbFixed;
+
 protected:    
 
      // Position in absolute coordinates
