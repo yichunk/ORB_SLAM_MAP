@@ -20,10 +20,14 @@ struct Point3D{
 
 struct Point2D{
     float x,y,scale,orientation;
-    bool operator < (const Point2D& other) const{
-        return scale > other.scale;
-    }
+    // bool operator < (const Point2D& other) const{
+    //     return scale > other.scale;
+    // }
 };
+
+// bool compareKeyPoint(cv::KeyPoint k1, cv::KeyPoint k2){
+//     return k1.octave < k2.octave;
+// }
 
 void readPoints3D(string filename, unordered_map<int, Point3D>& points3D){
     string line;
@@ -67,6 +71,35 @@ void readPoints2D(string filename, unordered_map<int, vector<Point2D>>& points2D
             iss >> x >> y >> scale >> orientation;
             point2ds.push_back({x,y,scale,orientation});
         }
+    }
+}
+
+// void readPoints2D(string filename, unordered_map<int, vector<cv::KeyPoint>>& points2D){
+//     string line;
+//     ifstream points2DFile(filename);
+//     getline(points2DFile, line);
+//     int imageID, image2dId;
+//     float x,y,scale,orientation;
+//     while(getline(points2DFile, line)){
+//         istringstream iss(line);
+//         iss >> imageID;
+//         auto& point2ds = points2D[imageID];
+//         while(iss >> image2dId){
+//             iss >> x >> y >> scale >> orientation;
+//             // point2ds.push_back({x,y,scale,orientation});
+//             int level = discretizeScale(scale, 1.2);
+//             points2D.push_back(cv::KeyPoint(x,y,31,0,))
+//         }
+//     }
+// }
+
+void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& level, float&scale){
+    level = 0;
+    scale = 1;
+    while(scaleColmap > scaleFactor && level < maxLevel-1){
+        level++;
+        scaleColmap /= scaleFactor;
+        scale *= scaleFactor;
     }
 }
 
@@ -171,7 +204,7 @@ int main(int argc, char **argv)
 
     // cout << "Create KeyFrame database and Map" << endl;
     // KeyFrameDatabase* mpKeyFrameDatabase = new KeyFrameDatabase(mpVocabulary);
-    // Map* mpMap = new Map();
+    Map* pMap = new Map();
 
     string argo_img_files[] = {
         "experiments/ring_front_center/ring_front_center_315978411061152056.jpg", //image id 5
@@ -269,18 +302,39 @@ int main(int argc, char **argv)
     unordered_map<int, vector<Point2D>> points2D;
     readPoints3D("experiments/data/points3D.txt", points3D);
     readPoints2D("experiments/data/points2D.txt", points2D);
+    
+
+    //暫時記錄imageid to keyframes, 之後用來更新MapPoint的attributes
+    vector<KeyFrame*> addedKeyFrames;
+    addedKeyFrames.resize(19);
 
     vector<vector<cv::KeyPoint>> interestedPoints;
     interestedPoints.resize(8);
     for(auto it : points3D){
         Point3D& point3D = it.second;
-        MapPoint* pMP;
-        vector<int>::iterator pit = find(point3D.imageIds.begin(), point3D.points2dIds.end(), 5);
-        if(pit != point3D.points2dIds.end()){
-            int idx = pit - point3D.imageIds.begin();
-            int point2DId = point3D.points2dIds[idx];
 
+        //新增MapPoint, 新加的constructor
+        //之後要補上 mnFirstKFid, mnFirstFrame, mpRefKF
+        cv::Mat pos = (cv::Mat_<float>(3,1) << point3D.x, point3D.y, point3D.z);
+        MapPoint* pMP = new MapPoint(pos, pMap);
+
+        vector<int>::iterator pit = find(point3D.imageIds.begin(), point3D.imageIds.end(), 5);
+        if(pit != point3D.imageIds.end()){
+            auto idx = pit - point3D.imageIds.begin();
+            int point2DId = point3D.points2dIds[idx];
+            Point2D& point2D = points2D[5][point2DId];
+            int level;
+            float scale;
+            discretizeScale(point2D.scale, 1.2, 8, level, scale);
+            interestedPoints[level].push_back(
+                cv::KeyPoint(point2D.x/scale, point2D.y/scale, 31*scale, point2D.orientation, 0, level));
         }
     }
+
+    
+
+
+
+
     return 0;
 }
