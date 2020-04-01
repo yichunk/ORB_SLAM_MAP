@@ -4,13 +4,30 @@
 #include<fstream>
 #include<chrono>
 #include<vector>
-
 #include<opencv2/core/core.hpp>
-
+#include <numeric>      // std::iota
 #include<System.h>
 
 using namespace std;
 using namespace ORB_SLAM2;
+
+template <typename T>
+vector<size_t> sort_indexes(const vector<T> &v) {
+
+  // initialize original index locations
+  vector<size_t> idx(v.size());
+  iota(idx.begin(), idx.end(), 0);
+
+  // sort indexes based on comparing values in v
+  // using std::stable_sort instead of std::sort
+  // to avoid unnecessary index re-orderings
+  // when v contains elements of equal values 
+  stable_sort(idx.begin(), idx.end(),
+       [&v](size_t i1, size_t i2) {return v[i1] < v[i2];});
+
+  return idx;
+}
+
 
 struct Point3D{
     float x,y,z;
@@ -20,9 +37,9 @@ struct Point3D{
 
 struct Point2D{
     float x,y,scale,orientation;
-    // bool operator < (const Point2D& other) const{
-    //     return scale > other.scale;
-    // }
+    bool operator < (const Point2D& other) const{
+        return scale < other.scale;
+    }
 };
 
 // bool compareKeyPoint(cv::KeyPoint k1, cv::KeyPoint k2){
@@ -93,7 +110,7 @@ void readPoints2D(string filename, unordered_map<int, vector<Point2D>>& points2D
 //     }
 // }
 
-void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& level, float&scale){
+void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& level, float& scale){
     level = 0;
     scale = 1;
     while(scaleColmap > scaleFactor && level < maxLevel-1){
@@ -102,6 +119,22 @@ void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& le
         scale *= scaleFactor;
     }
 }
+
+// void constructKeyFrames(const unordered_map<int, vector<Point2D>>& points2D, 
+//                      const unordered_map<int, cv::Mat>& imGrays,
+//                      const unordered_map<int, cv::Mat>& Tcws,
+//                      const ORBextractor* pORBextractor,
+//                      const ORBVocabulary* pVocabulary,
+//                      const cv::Mat& K,
+//                      const cv::Mat& distCoef,
+//                      unordered_map<int, KeyFrame*> pKeyFrames){
+//     for(auto it: points2D){
+//         int mapID = it.first;
+//         auto& colmapPoints2D = it.second;
+        
+
+//     }
+// }
 
 void drawGraph(MapDrawer* mpMapDrawer, FrameDrawer* mpFrameDrawer)
 {
@@ -197,34 +230,39 @@ void drawGraph(MapDrawer* mpMapDrawer, FrameDrawer* mpFrameDrawer)
 int main(int argc, char **argv)
 {
 
-    // ORBVocabulary* mpVocabulary = new ORBVocabulary();
-    // cout << "Load Vocabulary File" << endl;
-    // const string strVocFile("Vocabulary/ORBvoc.txt");
-    // mpVocabulary->loadFromTextFile(strVocFile);
+    ORBVocabulary* mpVocabulary = new ORBVocabulary();
+    cout << "Load Vocabulary File" << endl;
+    const string strVocFile("Vocabulary/ORBvoc.txt");
+    mpVocabulary->loadFromTextFile(strVocFile);
 
-    // cout << "Create KeyFrame database and Map" << endl;
-    // KeyFrameDatabase* mpKeyFrameDatabase = new KeyFrameDatabase(mpVocabulary);
+    cout << "Create KeyFrame database and Map" << endl;
+    KeyFrameDatabase* mpKeyFrameDatabase = new KeyFrameDatabase(mpVocabulary);
     Map* pMap = new Map();
 
     string argo_img_files[] = {
-        "experiments/ring_front_center/ring_front_center_315978411061152056.jpg", //image id 5
-        "experiments/ring_front_center/ring_front_center_315978411527355224.jpg"  //image id 13
+        "experiments/data/ring_front_center/ring_front_center_315978411061152056.jpg", 
+        "experiments/data/ring_front_center/ring_front_center_315978411527355224.jpg" 
     };
-    
-    // cv::Mat Tcws[] = { cv::Mat::eye(4,4,CV_32F), cv::Mat::eye(4,4,CV_32F) };
 
-    // Tcws[0].at<float>(0,0) = 0.99984074;
-    // Tcws[0].at<float>(0,1) = 0.00870911;
-    // Tcws[0].at<float>(0,2) = -0.0155791;
-    // Tcws[0].at<float>(0,3) = -0.455713;
-    // Tcws[0].at<float>(1,0) = -0.00889986;
-    // Tcws[0].at<float>(1,1) = 0.99988574;
-    // Tcws[0].at<float>(1,2) = -0.01221689;
-    // Tcws[0].at<float>(1,3) = 0.0478371;
-    // Tcws[0].at<float>(2,0) = 0.01547092;
-    // Tcws[0].at<float>(2,1) = 0.0123536;
-    // Tcws[0].at<float>(2,2) = 0.999804;
-    // Tcws[0].at<float>(2,3) = 5.3258;
+    cv::Mat im;
+    cv::Mat imGray;
+    im = cv::imread(argo_img_files[0]);
+    cv::cvtColor(im, imGray, cv::COLOR_BGR2GRAY);
+    
+    cv::Mat Tcws[] = { cv::Mat::eye(4,4,CV_32F), cv::Mat::eye(4,4,CV_32F) };
+
+    Tcws[0].at<float>(0,0) = 0.99984074;
+    Tcws[0].at<float>(0,1) = 0.00870911;
+    Tcws[0].at<float>(0,2) = -0.0155791;
+    Tcws[0].at<float>(0,3) = -0.455713;
+    Tcws[0].at<float>(1,0) = -0.00889986;
+    Tcws[0].at<float>(1,1) = 0.99988574;
+    Tcws[0].at<float>(1,2) = -0.01221689;
+    Tcws[0].at<float>(1,3) = 0.0478371;
+    Tcws[0].at<float>(2,0) = 0.01547092;
+    Tcws[0].at<float>(2,1) = 0.0123536;
+    Tcws[0].at<float>(2,2) = 0.999804;
+    Tcws[0].at<float>(2,3) = 5.3258;
 
     // Tcws[1].at<float>(0,0) = 0.99991554;
     // Tcws[1].at<float>(0,1) = 0.00565967;
@@ -243,26 +281,26 @@ int main(int argc, char **argv)
     // cv::Mat x3D = (cv::Mat_<float>(3,1) << 2.92129, 0.894701, 8.56214);
     
 
-    // int nFeatures = 1000;
-    // float fScaleFactor = 1.2;
-    // int nLevels = 8;
-    // int fIniThFAST = 5;
-    // int fMinThFAST = 2;
+    int nFeatures = 1000;
+    float fScaleFactor = 1.2;
+    int nLevels = 8;
+    int fIniThFAST = 5;
+    int fMinThFAST = 2;
 
-    // cv::Mat K = cv::Mat::eye(3,3,CV_32F);
-    // K.at<float>(0,0) = 1406;
-    // K.at<float>(1.1) = 1406;
-    // K.at<float>(0,2) = 960;
-    // K.at<float>(1,2) = 600;
+    cv::Mat K = cv::Mat::eye(3,3,CV_32F);
+    K.at<float>(0,0) = 1406;
+    K.at<float>(1.1) = 1406;
+    K.at<float>(0,2) = 960;
+    K.at<float>(1,2) = 600;
 
-    // cv::Mat distCoef(4,1,CV_32F);
+    cv::Mat distCoef(4,1,CV_32F);
 
-    // ORBextractor* mpIniORBextractor = new ORBextractor(
-    //     2*nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
+    ORBextractor* mpIniORBextractor = new ORBextractor(
+        2*nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
 
     // cv::Mat im, imGray;
-    // KeyFrame* pKF;
-    // MapPoint* pMP;
+    KeyFrame* pKF;
+    MapPoint* pMP;
 
     // vector<vector<cv::KeyPoint>> interestedPoints;
     // interestedPoints.resize(8);
@@ -288,11 +326,7 @@ int main(int argc, char **argv)
     //     mpKeyFrameDatabase->add(pKF);
     // }
 
-    //Create Drawers. These are used by the Viewer
-    // string strSettingsFile = "Examples/Monocular/TUM1.yaml";
-    // FrameDrawer* mpFrameDrawer = new FrameDrawer(mpMap, true);
-    // MapDrawer* mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
-    // drawGraph(mpMapDrawer, mpFrameDrawer);
+   
 
 
     //point3D ID to Point3D
@@ -302,39 +336,100 @@ int main(int argc, char **argv)
     unordered_map<int, vector<Point2D>> points2D;
     readPoints3D("experiments/data/points3D.txt", points3D);
     readPoints2D("experiments/data/points2D.txt", points2D);
-    
+    // vector<vector<cv::KeyPoint>> interestedPoints;
+    // interestedPoints.resize(8);
 
     //暫時記錄imageid to keyframes, 之後用來更新MapPoint的attributes
-    vector<KeyFrame*> addedKeyFrames;
-    addedKeyFrames.resize(19);
+    // vector<KeyFrame*> addedKeyFrames;
+    // addedKeyFrames.resize(19);
+
+    // vector<vector<cv::KeyPoint>> interestedPoints;
+    // interestedPoints.resize(8);
+    // for(auto it : points3D){
+    //     Point3D& point3D = it.second;
+
+    //     //新增MapPoint, 新加的constructor
+    //     //之後要補上 mnFirstKFid, mnFirstFrame, mpRefKF
+    //     cv::Mat pos = (cv::Mat_<float>(3,1) << point3D.x, point3D.y, point3D.z);
+    //     MapPoint* pMP = new MapPoint(pos, pMap);
+
+    //     vector<int>::iterator pit = find(point3D.imageIds.begin(), point3D.imageIds.end(), 5);
+    //     if(pit != point3D.imageIds.end()){
+    //         auto idx = pit - point3D.imageIds.begin();
+    //         int point2DId = point3D.points2dIds[idx];
+    //         Point2D& point2D = points2D[5][point2DId];
+    //         int level;
+    //         float scale;
+    //         discretizeScale(point2D.scale, 1.2, 8, level, scale);
+    //         interestedPoints[level].push_back(
+    //             cv::KeyPoint(point2D.x/scale, point2D.y/scale, 31*scale, point2D.orientation, 0, level));
+    //     }
+    // }
 
     vector<vector<cv::KeyPoint>> interestedPoints;
-    interestedPoints.resize(8);
+    vector<size_t> sorted_index = sort_indexes(points2D[5]);
+    vector<int> accCount;
+    accCount.resize(nLevels);
+    interestedPoints.resize(nLevels);
+    const vector<Point2D>& imagePoints2D = points2D[5];
+
+    //points2D id to its order of scale
+    vector<int> orders;
+    orders.resize(imagePoints2D.size());
+    for(int i = 0; i < orders.size(); i++){
+        orders[sorted_index[i]] = i;
+    }
+
+    for(int i = 0, j = 0; i < (int)imagePoints2D.size(); i++){
+        const Point2D& point2D = imagePoints2D[sorted_index[i]];
+        int level;
+        float scale;
+        discretizeScale(point2D.scale, fScaleFactor, nLevels, level, scale);
+        interestedPoints[level].push_back(
+            cv::KeyPoint(point2D.x/scale, point2D.y/scale, 31*scale, point2D.orientation, 0, level));
+        while(level > j){
+            accCount[j++] = i;
+        }
+    }
+    accCount[nLevels-1] = imagePoints2D.size();
+    Frame frame(imGray, 0, mpIniORBextractor, mpVocabulary, K, distCoef, 0, 0, interestedPoints);
+    frame.ComputeBoW();
+    frame.SetPose(Tcws[0]);
+
+    pKF = new KeyFrame(frame,pMap,mpKeyFrameDatabase);
+
     for(auto it : points3D){
         Point3D& point3D = it.second;
 
         //新增MapPoint, 新加的constructor
         //之後要補上 mnFirstKFid, mnFirstFrame, mpRefKF
         cv::Mat pos = (cv::Mat_<float>(3,1) << point3D.x, point3D.y, point3D.z);
-        MapPoint* pMP = new MapPoint(pos, pMap);
-
         vector<int>::iterator pit = find(point3D.imageIds.begin(), point3D.imageIds.end(), 5);
         if(pit != point3D.imageIds.end()){
-            auto idx = pit - point3D.imageIds.begin();
-            int point2DId = point3D.points2dIds[idx];
-            Point2D& point2D = points2D[5][point2DId];
-            int level;
-            float scale;
-            discretizeScale(point2D.scale, 1.2, 8, level, scale);
-            interestedPoints[level].push_back(
-                cv::KeyPoint(point2D.x/scale, point2D.y/scale, 31*scale, point2D.orientation, 0, level));
+            MapPoint* pMP = new MapPoint(pos, pMap);
+            int point2DId = point3D.points2dIds[(int)(pit - point3D.imageIds.begin())];
+            int keypointId, offset;
+            for(int level = 0; level < nLevels; level++){
+                if(orders[point2DId] < accCount[level]){
+                    offset = accCount[level] - orders[point2DId];
+                    keypointId = frame.mvAccKeyPoints[level] - offset;
+                    break;
+                }
+            }
+            // cout << imagePoints2D[point2DId].x << " " << imagePoints2D[point2DId].y << " "  << pKF->mvKeys[keypointId].pt.x << " " << pKF->mvKeys[keypointId].pt.y << endl;
+
+            pKF->AddMapPoint(pMP, keypointId);
+            pMP->AddObservation(pKF, keypointId);
+            pMap->AddMapPoint(pMP);
         }
     }
+    pMap->AddKeyFrame(pKF);
 
-    
-
-
-
+     //Create Drawers. These are used by the Viewer
+    string strSettingsFile = "Examples/Monocular/TUM1.yaml";
+    FrameDrawer* mpFrameDrawer = new FrameDrawer(pMap, true);
+    MapDrawer* mpMapDrawer = new MapDrawer(pMap, strSettingsFile);
+    drawGraph(mpMapDrawer, mpFrameDrawer);
 
     return 0;
 }
