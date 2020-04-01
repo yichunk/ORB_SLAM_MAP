@@ -93,7 +93,7 @@ void readPoints2D(string filename, unordered_map<int, vector<Point2D>>& points2D
     }
 }
 
-void readPoses(string filename, unordered_map<int, cv::Mat>& imGrays, unordered_map<int, cv::Mat>& Tcws){
+void readPoses(string filename, unordered_map<int, cv::Mat>& imGrays, unordered_map<int, cv::Mat>& Tcws, unordered_map<int, int>& cameraIDs){
     string line;
     ifstream posesFile(filename);
     getline(posesFile, line);
@@ -114,6 +114,33 @@ void readPoses(string filename, unordered_map<int, cv::Mat>& imGrays, unordered_
         cv::cvtColor(im, imGray, cv::COLOR_BGR2GRAY);
         imGrays[imageID] = imGray;
         Tcws[imageID] = Tcw;
+        cameraIDs[imageID] = cameraID;
+    }
+}
+
+void readCameras(string filename, unordered_map<int, cv::Mat>& Ks, unordered_map<int, cv::Mat>& distCoefs){
+    string line;
+    ifstream camerasFile(filename);
+    getline(camerasFile, line);
+    getline(camerasFile, line);
+    getline(camerasFile, line);
+    int cameraID;
+    int width, height;
+    float f, cx, cy, k;
+    string model;
+    
+    while(getline(camerasFile, line)){
+        istringstream iss(line);
+        iss >> cameraID >> model >> f >> cx >> cy >> k;
+        
+        cv::Mat K = cv::Mat::eye(3,3,CV_32F);
+        K.at<float>(0,0) = f;
+        K.at<float>(1.1) = f;
+        K.at<float>(0,2) = cx;
+        K.at<float>(1,2) = cy;
+        cv::Mat distCoef(4,1,CV_32F);
+        Ks[cameraID] = K;
+        distCoefs[cameraID] = distCoef;
     }
 }
 
@@ -127,21 +154,23 @@ void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& le
     }
 }
 
-void constructKeyFrames(unordered_map<int, vector<Point2D>>& points2D, 
-                     unordered_map<int, cv::Mat>& imGrays,
-                     unordered_map<int, cv::Mat>& Tcws,
-                     ORBextractor* pORBextractor,
-                     ORBVocabulary* pVocabulary,
-                     cv::Mat& K,
-                     cv::Mat& distCoef,
-                     float fScaleFactor,
-                     int nLevels,
-                     KeyFrameDatabase* pKeyFrameDatabase,
-                     Map* pMap,
-                     unordered_map<int, KeyFrame*>& pKeyFrames,
-                     unordered_map<int, vector<int>>& orders,
-                     unordered_map<int, vector<int>>& accCounts
-                     ){
+void constructKeyFrames(
+                    unordered_map<int, vector<Point2D>>& points2D,
+                    unordered_map<int, int>& cameraIDs,
+                    unordered_map<int, cv::Mat>& imGrays,
+                    unordered_map<int, cv::Mat>& Tcws,
+                    ORBextractor* pORBextractor,
+                    ORBVocabulary* pVocabulary,
+                    unordered_map<int, cv::Mat>& Ks,
+                    unordered_map<int, cv::Mat>& distCoefs,
+                    float fScaleFactor,
+                    int nLevels,
+                    KeyFrameDatabase* pKeyFrameDatabase,
+                    Map* pMap,
+                    unordered_map<int, KeyFrame*>& pKeyFrames,
+                    unordered_map<int, vector<int>>& orders,
+                    unordered_map<int, vector<int>>& accCounts
+                    ){
     for(auto it: points2D){
         int imID = it.first;
         vector<Point2D>& colmapPoints2D = it.second;
@@ -170,7 +199,8 @@ void constructKeyFrames(unordered_map<int, vector<Point2D>>& points2D,
             }
         }
         accCount[nLevels-1] = colmapPoints2D.size();
-        Frame frame(imGrays[imID], 0, pORBextractor, pVocabulary, K, distCoef, 0, 0, interestedPoints);
+        int cameraID = cameraIDs[imID];
+        Frame frame(imGrays[imID], 0, pORBextractor, pVocabulary, Ks[cameraID], distCoefs[cameraID], 0, 0, interestedPoints);
         frame.ComputeBoW();
         frame.SetPose(Tcws[imID]);
         pKeyFrames[imID] = new KeyFrame(frame,pMap,pKeyFrameDatabase);
@@ -285,13 +315,7 @@ int main(int argc, char **argv)
     int fIniThFAST = 5;
     int fMinThFAST = 2;
 
-    cv::Mat K = cv::Mat::eye(3,3,CV_32F);
-    K.at<float>(0,0) = 1406;
-    K.at<float>(1.1) = 1406;
-    K.at<float>(0,2) = 960;
-    K.at<float>(1,2) = 600;
-
-    cv::Mat distCoef(4,1,CV_32F);
+    
 
     ORBextractor* mpIniORBextractor = new ORBextractor(
         2*nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
@@ -300,24 +324,27 @@ int main(int argc, char **argv)
     unordered_map<int, Point3D> points3D;
     //image ID to Point2D vector
     unordered_map<int, vector<Point2D>> points2D;
-
+    unordered_map<int, int> cameraIDs;
     unordered_map<int, KeyFrame*> pKeyFrames;
     unordered_map<int, cv::Mat> imGrays;
     unordered_map<int, cv::Mat> Tcws;
+    unordered_map<int, cv::Mat> Ks;
+    unordered_map<int, cv::Mat> distCoefs;
     unordered_map<int, vector<int>> orders;
     unordered_map<int, vector<int>> accCounts;
 
     readPoints3D("experiments/data/points3D.txt", points3D);
     readPoints2D("experiments/data/points2D.txt", points2D);
-    readPoses("experiments/data/poses.txt", imGrays, Tcws);
+    readPoses("experiments/data/poses.txt", imGrays, Tcws, cameraIDs);
+    readCameras("experiments/data/cameras.txt", Ks, distCoefs);
 
     constructKeyFrames(
-        points2D, imGrays, Tcws, mpIniORBextractor,
-        mpVocabulary, K, distCoef, fScaleFactor,
+        points2D, cameraIDs, imGrays, Tcws, mpIniORBextractor,
+        mpVocabulary, Ks, distCoefs, fScaleFactor,
         nLevels, mpKeyFrameDatabase, pMap,
         pKeyFrames, orders, accCounts);
 
-
+    //add MapPoints to Map
     for(auto it : points3D){
         Point3D& point3D = it.second;
 
@@ -343,6 +370,7 @@ int main(int argc, char **argv)
         }
     }
 
+    //Add KeyFrame to Map
     for(auto it: pKeyFrames){
         it.second->UpdateConnections();
         mpKeyFrameDatabase->add(it.second);
