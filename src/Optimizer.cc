@@ -528,8 +528,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
         g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
         vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
         vSE3->setId(pKFi->mnId);
-        vSE3->setFixed(pKFi->mnId==0);
-        vSE3->setFixed(pKFi->mbFixed);
+        vSE3->setFixed(pKFi->mnId==0 || pKFi->mbFixed);
         optimizer.addVertex(vSE3);
         if(pKFi->mnId>maxKFid)
             maxKFid=pKFi->mnId;
@@ -571,7 +570,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
     const float thHuberMono = sqrt(5.991);
     const float thHuberStereo = sqrt(7.815);
-
     for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++)
     {
         MapPoint* pMP = *lit;
@@ -997,8 +995,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     for(size_t i=0;i<vpKFs.size();i++)
     {
         KeyFrame* pKFi = vpKFs[i];
-        if(pKFi->mbFixed)
-            continue;
+        // if(pKFi->mbFixed)
+            // continue;
         const int nIDi = pKFi->mnId;
 
         g2o::VertexSim3Expmap* VSim3 = static_cast<g2o::VertexSim3Expmap*>(optimizer.vertex(nIDi));
@@ -1022,8 +1020,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
         if(pMP->isBad())
             continue;
-        if(pMP->mbFixed)
-            continue;
+        // if(pMP->mbFixed)
+            // continue;
 
         int nIDr;
         if(pMP->mnCorrectedByKF==pCurKF->mnId)

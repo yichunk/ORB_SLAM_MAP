@@ -57,7 +57,33 @@ void MapDrawer::DrawMapPoints()
 
     for(size_t i=0, iend=vpMPs.size(); i<iend;i++)
     {
-        if(vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i]))
+        if(vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i]) || !vpMPs[i]->mbFixed)
+            continue;
+        cv::Mat pos = vpMPs[i]->GetWorldPos();
+        glVertex3f(pos.at<float>(0),pos.at<float>(1),pos.at<float>(2));
+    }
+    glEnd();
+
+    glPointSize(mPointSize);
+    glBegin(GL_POINTS);
+    glColor3f(0.0,0.0,0.0);
+
+    for(size_t i=0, iend=vpMPs.size(); i<iend;i++)
+    {
+        if(vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i]) || vpMPs[i]->mbFixed)
+            continue;
+        cv::Mat pos = vpMPs[i]->GetWorldPos();
+        glVertex3f(pos.at<float>(0),pos.at<float>(1),pos.at<float>(2));
+    }
+    glEnd();
+
+    glPointSize(mPointSize*1.5);
+    glBegin(GL_POINTS);
+    glColor3f(0.0,0.0,1.0);
+
+    for(size_t i=0, iend=vpMPs.size(); i<iend;i++)
+    {
+        if(vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i]) || !vpMPs[i]->mbFixed)
             continue;
         cv::Mat pos = vpMPs[i]->GetWorldPos();
         glVertex3f(pos.at<float>(0),pos.at<float>(1),pos.at<float>(2));

@@ -183,8 +183,10 @@ void LocalMapping::MapPointCulling()
     while(lit!=mlpRecentAddedMapPoints.end())
     {
         MapPoint* pMP = *lit;
-        if(pMP->mbFixed)
+        if(pMP->mbFixed){
+            lit++;
             continue;
+        }
         if(pMP->isBad())
         {
             lit = mlpRecentAddedMapPoints.erase(lit);

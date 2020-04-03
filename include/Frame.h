@@ -191,6 +191,9 @@ public:
 
     static bool mbInitialComputations;
 
+    // accumulated keypoints per level
+    vector<int> mvAccKeyPoints;
+
 
 private:
 

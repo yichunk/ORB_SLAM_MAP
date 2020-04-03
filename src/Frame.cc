@@ -311,9 +311,9 @@ void Frame::ExtractORB(int flag, const cv::Mat &im)
 void Frame::ExtractORBWithInterestedPoints(int flag, const cv::Mat &im, vector<vector<cv::KeyPoint>>& interestedPoints)
 {
     if(flag==0)
-        (*mpORBextractorLeft)(im,cv::Mat(),interestedPoints,mvKeys,mDescriptors);
+        (*mpORBextractorLeft)(im,cv::Mat(),interestedPoints,mvKeys,mDescriptors,mvAccKeyPoints);
     else
-        (*mpORBextractorRight)(im,cv::Mat(),interestedPoints,mvKeysRight,mDescriptorsRight);
+        (*mpORBextractorRight)(im,cv::Mat(),interestedPoints,mvKeysRight,mDescriptorsRight,mvAccKeyPoints);
 }
 
 void Frame::SetPose(cv::Mat Tcw)

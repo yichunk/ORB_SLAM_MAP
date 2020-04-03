@@ -849,7 +849,7 @@ void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoin
 
     // compute orientations
     for (int level = 0; level < nlevels; ++level)
-        computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
+         computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
 }
 
 void ORBextractor::ComputeKeyPointsOld(std::vector<std::vector<KeyPoint> > &allKeypoints)
@@ -1105,7 +1105,7 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<KeyPo
 }
 
 void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<vector<cv::KeyPoint>>& interestedPoints, vector<KeyPoint>& _keypoints,
-                      OutputArray _descriptors)
+                      OutputArray _descriptors, vector<int>& accKeyPoints)
 {
     if(_image.empty())
         return;
@@ -1120,8 +1120,12 @@ void ORBextractor::operator()( InputArray _image, InputArray _mask, vector<vecto
     ComputeKeyPointsOctTree(allKeypoints);
 
     // Here add additional interested keypoints
+    accKeyPoints.resize(allKeypoints.size());
     for(int level = 0; level < nlevels; ++level){
         allKeypoints[level].insert(allKeypoints[level].end(), interestedPoints[level].begin(), interestedPoints[level].end());
+        accKeyPoints[level] = allKeypoints[level].size();
+        if(level > 0)
+            accKeyPoints[level] += accKeyPoints[level-1];
     }
     
     Mat descriptors;
