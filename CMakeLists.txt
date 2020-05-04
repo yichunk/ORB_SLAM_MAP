@@ -121,13 +121,18 @@ add_executable(mono_euroc
 Examples/Monocular/mono_euroc.cc)
 target_link_libraries(mono_euroc ${PROJECT_NAME})
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Examples/Argoverse)
+add_executable(mono_argoverse
+Examples/Argoverse/mono_argoverse.cc)
+target_link_libraries(mono_argoverse ${PROJECT_NAME})
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/Vocabulary)
 add_executable(bin_vocabulary Vocabulary/bin_vocabulary.cpp)
 target_link_libraries(bin_vocabulary ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so ${OpenCV_LIBS})
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/experiments)
-add_executable(relocalization experiments/relocalization.cc)
-target_link_libraries(relocalization ${PROJECT_NAME})
+add_executable(build_map experiments/build_map.cc)
+target_link_libraries(build_map ${PROJECT_NAME})
 add_executable(fast_score experiments/fast_score.cc experiments/fast-C-src/fast_12.c)
 target_include_directories(fast_score PUBLIC experiments/fast-C-src)
 target_link_libraries(fast_score ${OpenCV_LIBS})

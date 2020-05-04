@@ -9,6 +9,8 @@
 #include<System.h>
 #include<Eigen/Dense>
 #include"Converter.h"
+#include<thread>
+#include "BoostArchiver.h"
 
 using namespace std;
 using namespace ORB_SLAM2;
@@ -44,10 +46,6 @@ struct Point2D{
     }
 };
 
-// bool compareKeyPoint(cv::KeyPoint k1, cv::KeyPoint k2){
-//     return k1.octave < k2.octave;
-// }
-
 void readPoints3D(string filename, unordered_map<int, Point3D>& points3D){
     string line;
     ifstream points3DFile(filename);
@@ -76,7 +74,7 @@ void readPoints3D(string filename, unordered_map<int, Point3D>& points3D){
     }
 }
 
-void readPoints2D(string filename, unordered_map<int, vector<Point2D>>& points2D){
+void readPoints2D(string filename, map<int, vector<Point2D>>& points2D){
     string line;
     ifstream points2DFile(filename);
     getline(points2DFile, line);
@@ -131,11 +129,11 @@ void readCameras(string filename, unordered_map<int, cv::Mat>& Ks, unordered_map
     
     while(getline(camerasFile, line)){
         istringstream iss(line);
-        iss >> cameraID >> model >> f >> cx >> cy >> k;
+        iss >> cameraID >> model >> width >> height >> f >> cx >> cy >> k;
         
         cv::Mat K = cv::Mat::eye(3,3,CV_32F);
         K.at<float>(0,0) = f;
-        K.at<float>(1.1) = f;
+        K.at<float>(1,1) = f;
         K.at<float>(0,2) = cx;
         K.at<float>(1,2) = cy;
         cv::Mat distCoef(4,1,CV_32F);
@@ -155,7 +153,7 @@ void discretizeScale(float scaleColmap, float scaleFactor, int maxLevel, int& le
 }
 
 void constructKeyFrames(
-                    unordered_map<int, vector<Point2D>>& points2D,
+                    map<int, vector<Point2D>>& points2D,
                     unordered_map<int, int>& cameraIDs,
                     unordered_map<int, cv::Mat>& imGrays,
                     unordered_map<int, cv::Mat>& Tcws,
@@ -199,11 +197,15 @@ void constructKeyFrames(
             }
         }
         accCount[nLevels-1] = colmapPoints2D.size();
+        
         int cameraID = cameraIDs[imID];
         Frame frame(imGrays[imID], 0, pORBextractor, pVocabulary, Ks[cameraID], distCoefs[cameraID], 0, 0, interestedPoints);
+        // Frame frame(imGrays[imID], 0, pORBextractor, pVocabulary, Ks[cameraID], distCoefs[cameraID], 0, 0);
         frame.ComputeBoW();
         frame.SetPose(Tcws[imID]);
         pKeyFrames[imID] = new KeyFrame(frame,pMap,pKeyFrameDatabase);
+        pKeyFrames[imID]->mbFixed = true;
+        cout << imID << " " << pKeyFrames[imID]->mnId << endl;
     }
 }
 
@@ -298,90 +300,181 @@ void drawGraph(MapDrawer* mpMapDrawer, FrameDrawer* mpFrameDrawer)
 
 }
 
+void SaveMap(const string &filename, Map* pMap, KeyFrameDatabase* pKeyFrameDatabase)
+{
+    unique_lock<mutex>MapPointGlobal(MapPoint::mGlobalMutex);
+    std::ofstream out(filename, std::ios_base::binary);
+    if (!out)
+    {
+        cerr << "Cannot Write to Mapfile: " << filename << std::endl;
+        exit(-1);
+    }
+    cout << "Saving Mapfile: " << filename << std::flush;
+    boost::archive::binary_oarchive oa(out, boost::archive::no_header);
+    oa << pMap;
+    oa << pKeyFrameDatabase;
+    cout << " ...done" << std::endl;
+    out.close();
+}
+
+bool LoadMap(const string &filename, Map*& pMap, KeyFrameDatabase*& pKeyFrameDatabase, ORBVocabulary* pVocabulary)
+{
+    unique_lock<mutex>MapPointGlobal(MapPoint::mGlobalMutex);
+    std::ifstream in(filename, std::ios_base::binary);
+    if (!in)
+    {
+        cerr << "Cannot Open Mapfile: " << filename << " , You need create it first!" << std::endl;
+        return false;
+    }
+    cout << "Loading Mapfile: " << filename << std::flush;
+    boost::archive::binary_iarchive ia(in, boost::archive::no_header);
+    ia >> pMap;
+    ia >> pKeyFrameDatabase;
+    pKeyFrameDatabase->SetORBvocabulary(pVocabulary);
+    cout << " ...done" << std::endl;
+    cout << "Map Reconstructing" << flush;
+    vector<ORB_SLAM2::KeyFrame*> vpKFS = pMap->GetAllKeyFrames();
+    unsigned long mnFrameId = 0;
+    for (auto it:vpKFS) {
+        it->SetORBvocabulary(pVocabulary);
+        it->ComputeBoW();
+        if (it->mnFrameId > mnFrameId)
+            mnFrameId = it->mnFrameId;
+    }
+    Frame::nNextId = mnFrameId;
+    cout << " ...done" << endl;
+    in.close();
+    return true;
+}
+
 int main(int argc, char **argv)
 {
-    ORBVocabulary* mpVocabulary = new ORBVocabulary();
+    ORBVocabulary* pVocabulary = new ORBVocabulary();
     cout << "Load Vocabulary File" << endl;
-    const string strVocFile("Vocabulary/ORBvoc.txt");
-    mpVocabulary->loadFromTextFile(strVocFile);
+    const string strVocFile("Vocabulary/ORBvoc.bin");
+    pVocabulary->loadFromBinaryFile(strVocFile);
 
     cout << "Create KeyFrame database and Map" << endl;
-    KeyFrameDatabase* mpKeyFrameDatabase = new KeyFrameDatabase(mpVocabulary);
+    KeyFrameDatabase* pKeyFrameDatabase = new KeyFrameDatabase(pVocabulary);
     Map* pMap = new Map();
 
-    int nFeatures = 1000;
-    float fScaleFactor = 1.2;
-    int nLevels = 8;
-    int fIniThFAST = 5;
-    int fMinThFAST = 2;
+    // int nFeatures = 3000;
+    // float fScaleFactor = 1.4;
+    // int nLevels = 10;
+    // int fIniThFAST = 5;
+    // int fMinThFAST = 2;
 
+    // ORBextractor* pORBextractor = new ORBextractor(
+    //     nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
+
+    // //point3D ID to Point3D
+    // unordered_map<int, Point3D> points3D;
+    // //image ID to Point2D vector
+    // map<int, vector<Point2D>> points2D;
+    // unordered_map<int, int> cameraIDs;
+    // unordered_map<int, KeyFrame*> pKeyFrames;
+    // unordered_map<int, cv::Mat> imGrays;
+    // unordered_map<int, cv::Mat> Tcws;
+    // unordered_map<int, cv::Mat> Ks;
+    // unordered_map<int, cv::Mat> distCoefs;
+    // unordered_map<int, vector<int>> orders;
+    // unordered_map<int, vector<int>> accCounts;
+
+    // cout << "read points3D" << endl;
+    // readPoints3D("experiments/data2/points3D.txt", points3D);
+    // cout << "read points2D" << endl;
+    // readPoints2D("experiments/data2/points2D.txt", points2D);
+    // cout << "read poses" << endl;
+    // readPoses("experiments/data2/poses.txt", imGrays, Tcws, cameraIDs);
+    // cout << "read cameras" << endl;
+    // readCameras("experiments/data2/cameras.txt", Ks, distCoefs);
+
+    // cout << "construct KeyFrames" << endl;
+    // constructKeyFrames(
+    //     points2D, cameraIDs, imGrays, Tcws, pORBextractor,
+    //     pVocabulary, Ks, distCoefs, fScaleFactor,
+    //     nLevels, pKeyFrameDatabase, pMap,
+    //     pKeyFrames, orders, accCounts);
+
+    // // //add MapPoints to Map
+    // cout << "Add MapPoints" << endl;
+    // for(auto it : points3D){
+    //     Point3D& point3D = it.second;
+
+    //     //新增MapPoint, 隨意拿第一個ImageID做為first keyframe
+    //     cv::Mat pos = (cv::Mat_<float>(3,1) << point3D.x, point3D.y, point3D.z);
+    //     MapPoint* pMP = new MapPoint(pos, pKeyFrames[point3D.imageIds[0]],pMap);
+    //     pMP->mbFixed = true;
+    //     for(int i = 0; i < point3D.imageIds.size(); i++){
+    //         int imID = point3D.imageIds[i];
+    //         int point2DId = point3D.points2dIds[i];
+    //         int keypointId, offset;
+    //         for(int level = 0; level < nLevels; level++){
+    //             if(orders[imID][point2DId] < accCounts[imID][level]){
+    //                 offset = accCounts[imID][level] - orders[imID][point2DId];
+    //                 keypointId = pKeyFrames[imID]->mvAccKeyPoints[level] - offset;
+    //                 break;
+    //             }
+    //         }
+    //         pKeyFrames[imID]->AddMapPoint(pMP, keypointId);
+    //         pMP->AddObservation(pKeyFrames[imID], keypointId);
+    //         pMP->ComputeDistinctiveDescriptors();
+    //         pMP->UpdateNormalAndDepth();
+    //         pMap->AddMapPoint(pMP);
+    //     }
+    // }
+
+    // //Initialize the Local Mapping thread and launch
+    // LocalMapping* pLocalMapper = new LocalMapping(pMap, 1);
+    // thread* ptLocalMapping = new thread(&LocalMapping::Run,pLocalMapper);
+
+    // //Initialize the Loop Closing thread and launch
+    // LoopClosing* pLoopCloser = new LoopClosing(pMap, pKeyFrameDatabase, pVocabulary, 0);
+    // thread* ptLoopClosing = new thread(&ORB_SLAM2::LoopClosing::Run, pLoopCloser);
+
+    // pLocalMapper->SetLoopCloser(pLoopCloser);
+    // pLoopCloser->SetLocalMapper(pLocalMapper);
+
+    // chrono::milliseconds timespan(500);
     
+    // //Add KeyFrame to Map
+    // cout << "Add KeyFrames" << endl;
+    // for(auto it: pKeyFrames){
+    //     cout << "insert KeyFrame " << it.first << endl;
+    //     it.second->UpdateConnections();
+    //     pKeyFrameDatabase->add(it.second);
+    //     pMap->AddKeyFrame(it.second);
+    //     pLocalMapper->InsertKeyFrame(it.second);
+    //     this_thread::sleep_for(timespan);
+    // }
 
-    ORBextractor* mpIniORBextractor = new ORBextractor(
-        2*nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
+    // cout << "Enter to continue...";
+    // getchar();
 
-    //point3D ID to Point3D
-    unordered_map<int, Point3D> points3D;
-    //image ID to Point2D vector
-    unordered_map<int, vector<Point2D>> points2D;
-    unordered_map<int, int> cameraIDs;
-    unordered_map<int, KeyFrame*> pKeyFrames;
-    unordered_map<int, cv::Mat> imGrays;
-    unordered_map<int, cv::Mat> Tcws;
-    unordered_map<int, cv::Mat> Ks;
-    unordered_map<int, cv::Mat> distCoefs;
-    unordered_map<int, vector<int>> orders;
-    unordered_map<int, vector<int>> accCounts;
+    // pLocalMapper->RequestFinish();
+    // pLoopCloser->RequestFinish();
 
-    readPoints3D("experiments/data/points3D.txt", points3D);
-    readPoints2D("experiments/data/points2D.txt", points2D);
-    readPoses("experiments/data/poses.txt", imGrays, Tcws, cameraIDs);
-    readCameras("experiments/data/cameras.txt", Ks, distCoefs);
+    // // Wait until all thread have effectively stopped
+    // while(!pLocalMapper->isFinished() || !pLoopCloser->isFinished() || pLoopCloser->isRunningGBA())
+    // {
+    //     std::this_thread::sleep_for(std::chrono::microseconds(5000));
+    // }
 
-    constructKeyFrames(
-        points2D, cameraIDs, imGrays, Tcws, mpIniORBextractor,
-        mpVocabulary, Ks, distCoefs, fScaleFactor,
-        nLevels, mpKeyFrameDatabase, pMap,
-        pKeyFrames, orders, accCounts);
+    // cout << pMap->GetAllMapPoints().size() << " MapPoints" << endl;
 
-    //add MapPoints to Map
-    for(auto it : points3D){
-        Point3D& point3D = it.second;
+    // SaveMap("experiments/data2/ColmapMap.bin", pMap, pKeyFrameDatabase);
 
-        //新增MapPoint, 隨意拿第一個ImageID做為first keyframe
-        cv::Mat pos = (cv::Mat_<float>(3,1) << point3D.x, point3D.y, point3D.z);
-        MapPoint* pMP = new MapPoint(pos, pKeyFrames[point3D.imageIds[0]],pMap);
-        for(int i = 0; i < point3D.imageIds.size(); i++){
-            int imID = point3D.imageIds[i];
-            int point2DId = point3D.points2dIds[i];
-            int keypointId, offset;
-            for(int level = 0; level < nLevels; level++){
-                if(orders[imID][point2DId] < accCounts[imID][level]){
-                    offset = accCounts[imID][level] - orders[imID][point2DId];
-                    keypointId = pKeyFrames[imID]->mvAccKeyPoints[level] - offset;
-                    break;
-                }
-            }
-            pKeyFrames[imID]->AddMapPoint(pMP, keypointId);
-            pMP->AddObservation(pKeyFrames[imID], keypointId);
-            pMP->ComputeDistinctiveDescriptors();
-            pMP->UpdateNormalAndDepth();
-            pMap->AddMapPoint(pMP);
-        }
-    }
 
-    //Add KeyFrame to Map
-    for(auto it: pKeyFrames){
-        it.second->UpdateConnections();
-        mpKeyFrameDatabase->add(it.second);
-        pMap->AddKeyFrame(it.second);
-    }
+    Map* pNewMap;
+    KeyFrameDatabase* pNewKeyFrameDatabase;
+    LoadMap("experiments/data2/ColmapMap.bin", pNewMap, pNewKeyFrameDatabase, pVocabulary);
 
-     //Create Drawers. These are used by the Viewer
-    string strSettingsFile = "Examples/Monocular/TUM1.yaml";
-    FrameDrawer* mpFrameDrawer = new FrameDrawer(pMap, true);
-    MapDrawer* mpMapDrawer = new MapDrawer(pMap, strSettingsFile);
+    // // //Create Drawers. These are used by the Viewer
+    string strSettingsFile = "Examples/Argoverse/argoverse.yaml";
+    FrameDrawer* mpFrameDrawer = new FrameDrawer(pNewMap, true);
+    MapDrawer* mpMapDrawer = new MapDrawer(pNewMap, strSettingsFile);
     drawGraph(mpMapDrawer, mpFrameDrawer);
+
 
     return 0;
 }

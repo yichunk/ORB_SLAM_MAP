@@ -77,6 +77,7 @@ cv::Mat FrameDrawer::DrawFrame()
     if(im.channels()<3) //this should be always true
         cvtColor(im,im,CV_GRAY2BGR);
 
+    cv::resize(im, im, cv::Size(), 1./3, 1./3);
     //Draw
     if(state==Tracking::NOT_INITIALIZED) //INITIALIZING
     {
@@ -104,6 +105,10 @@ cv::Mat FrameDrawer::DrawFrame()
                 pt1.y=vCurrentKeys[i].pt.y-r;
                 pt2.x=vCurrentKeys[i].pt.x+r;
                 pt2.y=vCurrentKeys[i].pt.y+r;
+                pt1.x /= 3;
+                pt1.y /= 3;
+                pt2.x /= 3;
+                pt2.y /= 3;
 
                 // This is a match to a MapPoint in the map
                 if(vbMap[i])

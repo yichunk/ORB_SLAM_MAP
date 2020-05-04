@@ -66,7 +66,7 @@ void MapDrawer::DrawMapPoints()
 
     glPointSize(mPointSize);
     glBegin(GL_POINTS);
-    glColor3f(0.0,0.0,0.0);
+    glColor3f(1.0,0.0,0.0);
 
     for(size_t i=0, iend=vpMPs.size(); i<iend;i++)
     {
