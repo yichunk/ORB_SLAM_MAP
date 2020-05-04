@@ -138,6 +138,12 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
         }
     }
 
+    // vector<KeyFrame*> candidates;
+    // for(list<pair<float,KeyFrame*> >::iterator it=lScoreAndMatch.begin(), itend=lScoreAndMatch.end(); it!=itend; it++){
+    //     candidates.push_back(it->second);
+    // }
+    // return candidates;
+
     if(lScoreAndMatch.empty())
         return vector<KeyFrame*>();
 

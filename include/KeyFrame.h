@@ -198,6 +198,12 @@ public:
     const int mnMaxY;
     const cv::Mat mK;
 
+    // Fixed in Map, pose would not be optimized, and not be culled
+    bool mbFixed;
+
+    // accumulated keypoints per level
+    vector<int> mvAccKeyPoints;
+
 
     // The following variables need to be accessed trough a mutex to be thread safe.
 protected:

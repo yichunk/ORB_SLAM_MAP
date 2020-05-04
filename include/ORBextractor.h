@@ -60,6 +60,10 @@ public:
       std::vector<cv::KeyPoint>& keypoints,
       cv::OutputArray descriptors);
 
+    void operator()( cv::InputArray image, cv::InputArray mask,
+      std::vector<std::vector<cv::KeyPoint>>& interestedPoints, std::vector<cv::KeyPoint>& keypoints, 
+      cv::OutputArray descriptors, std::vector<int>& accKeyPoints);
+
     int inline GetLevels(){
         return nlevels;}
 
